@@ -419,7 +419,7 @@ async function loadChart() {
 
     $("chart-price").textContent = last.close.toFixed(5);
     const chgEl = $("chart-change");
-    chgEl.textContent = `${change >= 0 ? "+" : ""}${change.toFixed(3)}%`;
+    chgEl.textContent = change >= 0 ? "ALTA" : "BAIXA";
     chgEl.className = `price-change ${change >= 0 ? "up" : "down"}`;
   } catch (e) {
     console.error("Erro ao carregar gráfico:", e);
