@@ -1439,7 +1439,7 @@ async function consultarIA() {
     const cls = d.direcao === "CALL" ? "call" : d.direcao === "PUT" ? "put" : "neutral";
     const riscos = (d.riscos || []).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
     resultado.innerHTML = `
-      <div class="ai-direcao ${cls}">${d.direcao} · confiança ${Number(d.confianca).toFixed(1)}%</div>
+    <div class="ai-direcao ${cls}">${d.direcao}</div>
       <p class="ai-just">${escapeHtml(d.justificativa || "Sem justificativa fornecida.")}</p>
       ${riscos ? `<ul class="ai-riscos">${riscos}</ul>` : ""}
       <small class="muted">Modelo: ${escapeHtml(d.modelo || "—")} · análise educacional, não é recomendação de investimento.</small>`;
