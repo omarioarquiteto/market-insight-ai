@@ -261,9 +261,9 @@
           <p class="muted small">Ex.: 0.80 = só executa com payout ≥ 80%. Par sem payout disponível é ignorado.</p>
         </div>
         <div class="config-field">
-          <label for="auto-confianca-min">CONFIANÇA MÍNIMA (%)</label>
+          <label for="auto-confianca-min">CONFIANÇA MÍNIMA</label>
           <input id="auto-confianca-min" type="number" min="0" max="100" step="1" />
-          <p class="muted small">Confiança dos votos dos indicadores (0-100). Só entra com confiança ≥ este valor.</p>
+          <p class="muted small">Valor de referência dos votos dos indicadores (0-100). Só entra com confiança ≥ este valor.</p>
         </div>
         <div class="config-field">
           <label for="auto-direcao">DIREÇÃO PERMITIDA</label>
@@ -625,8 +625,7 @@
       <div><dt>AGUARDAR</dt><dd>Não há evidências técnicas suficientes. Não representa CALL nem PUT e indica que uma entrada deve ser evitada naquele momento.</dd></div>
       <div><dt>ATENÇÃO</dt><dd>Parte dos critérios está presente, mas o gatilho ainda é incompleto. É um aviso de proximidade, não uma recomendação de entrada.</dd></div>
       <div><dt>SINAL MUITO PRÓXIMO</dt><dd>A maioria dos critérios foi encontrada, porém ainda não existe confirmação direcional completa. Aguarde CALL ou PUT.</dd></div>
-      <div><dt>Confluência técnica: 10 de 12</dt><dd>Dez critérios técnicos foram atendidos entre doze possíveis nos três prazos. Também pode aparecer abreviado como 10/12. Não é percentual nem quantidade de operações vencedoras.</dd></div>
-      <div><dt>Estimativa histórica: 49,1% (114 casos)</dt><dd>Nos 114 sinais anteriores comparáveis, 49,1% acertaram a direção do candle seguinte. É uma medição retrospectiva e não garante o próximo resultado.</dd></div>
+      <div><dt>Taxa de acerto</dt><dd>É o único percentual exibido na análise. O sinal só é liberado com pelo menos 20 casos históricos comparáveis e taxa superior a 70%.</dd></div>
       <div><dt>Sem amostra suficiente</dt><dd>Foram encontrados menos de 20 casos históricos comparáveis, portanto a plataforma não publica um percentual potencialmente enganoso.</dd></div>
       <div><dt>Retração confirmada</dt><dd>O preço corrigiu em direção à EMA20 dentro de uma tendência identificada, com confirmação pelos demais critérios da estratégia.</dd></div>
       <div><dt>Retração sem confirmação</dt><dd>Há indício de correção, mas tendência, distância da média, RSI ou candle de confirmação ainda não atendem ao conjunto mínimo.</dd></div>
