@@ -58,6 +58,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+@app.get("/health")
+def health():
+    """Health check simples para o Render."""
+    return {"status": "ok", "service": "market-insight-ai"}
+
+
 @app.get("/")
 def root():
     return FileResponse(os.path.join(os.path.dirname(__file__), "static", "index.html"))
