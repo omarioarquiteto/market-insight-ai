@@ -74,7 +74,8 @@ STRATEGIES = {
 }
 
 _SIGNAL_CACHE: dict[tuple[str, str, str], dict] = {}
-MIN_ACCURACY_SAMPLE = 15     # amostra mínima para publicar o percentual
+MIN_ACCURACY_SAMPLE = 20     # mínimo de sinais históricos comparáveis
+MIN_ACCURACY_RATE = 70.0     # só libera CALL/PUT acima de 70%
 ACCURACY_WINDOW = 40         # janela rolante: últimos N sinais avaliados
 
 # Parâmetros configuráveis por estratégia (limiares usados em _strategy_signal).
@@ -352,16 +353,17 @@ def _proximity(score: int, max_score: int = 4) -> dict:
 
 
 def estimate_historical_accuracy(df: pd.DataFrame, strategy: str, horizon: int = 1) -> dict:
-    """Acerto real dos últimos sinais comparáveis (janela rolante).
+    """Calcula a taxa de acerto somente com candles já fechados.
 
-    Avalia os sinais que a estratégia teria emitido nos candles fechados
-    recentes e compara com o fechamento seguinte (mesmo critério de uma
-    entrada CALL/PUT). A janela é limitada aos últimos ACCURACY_WINDOW sinais,
-    então o percentual reage aos acertos/erros recentes — inclusive à vela
-    que acabou de fechar no sentido contrário ao sinal.
+    A taxa é usada como filtro do sinal: menos de 20 casos ou taxa de acerto
+    igual/abaixo de 70% não libera CALL/PUT.
     """
     if len(df) < 40:
-        return {"rate": None, "sample_size": 0, "wins": 0, "ultimos": [], "label": "Amostra insuficiente"}
+        return {
+            "rate": None, "sample_size": 0, "wins": 0, "ultimos": [],
+            "qualified": False, "label": "Amostra insuficiente"
+        }
+
     resultados: list[bool] = []
     start = max(40, len(df) - ACCURACY_WINDOW - horizon)
     for end in range(start, len(df) - horizon + 1):
@@ -376,15 +378,25 @@ def estimate_historical_accuracy(df: pd.DataFrame, strategy: str, horizon: int =
         resultados.append(acertou)
 
     total = len(resultados)
-    sufficient_sample = total >= MIN_ACCURACY_SAMPLE
     wins = sum(1 for r in resultados if r)
+    rate = round(wins / total * 100, 1) if total else None
+    qualified = bool(total >= MIN_ACCURACY_SAMPLE and rate is not None and rate > MIN_ACCURACY_RATE)
     ultimos = [("OK" if r else "ERRO") for r in reversed(resultados[-12:])]
+
+    if total < MIN_ACCURACY_SAMPLE:
+        label = "Amostra insuficiente"
+    elif rate is not None and rate <= MIN_ACCURACY_RATE:
+        label = "Taxa de acerto abaixo do mínimo"
+    else:
+        label = "Taxa de acerto qualificada"
+
     return {
-        "rate": round(wins / total * 100, 1) if sufficient_sample else None,
+        "rate": rate,
         "sample_size": total,
         "wins": wins,
         "ultimos": ultimos,
-        "label": "Acerto nos últimos sinais comparáveis; não garante o próximo resultado." if sufficient_sample else "Amostra insuficiente",
+        "qualified": qualified,
+        "label": label,
     }
 
 
@@ -870,7 +882,7 @@ INDICADORES_PADRAO = [
         "nome": "MFI (14)",
         "descricao": "Money Flow Index: fluxo monetário com volume; extremos de sobrevenda/sobrecompra.",
         "peso": 1.0,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_mfi,
         "votar": _vote_mfi,
     },
@@ -879,7 +891,7 @@ INDICADORES_PADRAO = [
         "nome": "ROC (10)",
         "descricao": "Rate of Change: momentum percentual do preço.",
         "peso": 0.8,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_roc,
         "votar": _vote_roc,
     },
@@ -888,7 +900,7 @@ INDICADORES_PADRAO = [
         "nome": "Parabolic SAR",
         "descricao": "Ponto de reversão que segue o preço; direção do SAR.",
         "peso": 1.0,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_sar,
         "votar": _vote_sar,
     },
@@ -897,7 +909,7 @@ INDICADORES_PADRAO = [
         "nome": "OBV",
         "descricao": "On-Balance Volume: pressão compradora/vendedora acumulada.",
         "peso": 0.8,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_obv,
         "votar": _vote_obv,
     },
@@ -932,7 +944,7 @@ INDICADORES_PADRAO = [
         "nome": "CMF (20)",
         "descricao": "Chaikin Money Flow: fluxo monetário acumulado com volume.",
         "peso": 0.9,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_cmf,
         "votar": _vote_cmf,
     },
@@ -941,7 +953,7 @@ INDICADORES_PADRAO = [
         "nome": "Donchian (20)",
         "descricao": "Rompimento da máxima/mínima de 20 velas.",
         "peso": 1.0,
-        "padrao": False,
+        "padrao": True,
         "preparar": _preparar_donchian,
         "votar": _vote_donchian,
     },
@@ -1025,7 +1037,10 @@ def _ids_indicadores_ativos() -> list[str]:
     validos = [i for i in ids if i in _INDICADORES_POR_ID]
     # Se nada foi configurado ainda, apenas os indicadores de PADRÃO participam;
     # os indicadores novos (padrao=False) entram somente quando marcados na aba Estratégias.
-    return validos or [reg["id"] for reg in INDICADORES_PADRAO if reg.get("padrao", True)]
+    return validos or [
+        "rsi", "macd", "ema510", "ema1020", "bollinger", "adx",
+        "mfi", "roc", "sar", "obv", "cmf", "donchian"
+    ]
 
 
 def set_indicadores_ativos(ids: list[str]) -> tuple[bool, str]:
@@ -1248,8 +1263,13 @@ def analyze_asset(asset: str, strategy: str = "trend_pullback") -> dict:
             continue
 
         interval = TIMEFRAMES[expiry]["interval"]
-        candles = _drop_incomplete_candle(iq_service.get_candles_smart(asset, interval, 240), interval)
+        candles = iq_service.get_candles_smart(asset, interval, 240)
+        # A análise ao vivo pode usar a vela em formação. Isso permite encontrar
+        # um sinal no meio da vela; o contador continua apontando para o próximo
+        # fechamento do timeframe.
         df = compute_indicators(candles_to_df(candles))
+        closed_candles = _drop_incomplete_candle(candles, interval)
+        historical_df = compute_indicators(candles_to_df(closed_candles))
         decision = _strategy_signal(df, strategy) if not df.empty else _signal("AGUARDAR", 0, "Sem dados de mercado.", [])
         if not news["available"]:
             decision = _signal("AGUARDAR", 0, "Entrada suspensa: calendário econômico indisponível.", [])
@@ -1291,7 +1311,25 @@ def analyze_asset(asset: str, strategy: str = "trend_pullback") -> dict:
         expires_at = ((now // interval) + 1) * interval
         horizon = 1
         decision["proximity"] = _proximity(decision["score"], STRATEGIES[strategy]["max_score"])
-        decision["historical_accuracy"] = estimate_historical_accuracy(df, strategy, horizon)
+        decision["historical_accuracy"] = estimate_historical_accuracy(historical_df, strategy, horizon)
+
+        # Só existe CALL/PUT quando a amostra histórica tem pelo menos 20
+        # sinais e a taxa de acerto é estritamente maior que 70%.
+        accuracy = decision["historical_accuracy"]
+        if decision["signal"] in ("CALL", "PUT") and not accuracy.get("qualified", False):
+            decision = _signal(
+                "AGUARDAR",
+                decision["score"],
+                "Sinal técnico encontrado, mas ainda não atende ao filtro histórico mínimo "
+                "(20 sinais e taxa de acerto acima de 70%).",
+                decision.get("indicators", []),
+            )
+            decision["proximity"] = _proximity(decision["score"], STRATEGIES[strategy]["max_score"])
+            decision["historical_accuracy"] = accuracy
+
+        # O sinal pode ser encontrado no meio da vela atual. O vencimento,
+        # porém, permanece fixado no próximo fechamento do timeframe.
+        decision["candle_in_progress"] = bool(candles and int(candles[-1].get("time", 0)) >= int(time.time()) // interval * interval)
         signals[expiry] = {
             **decision,
             "expiry": expiry,
