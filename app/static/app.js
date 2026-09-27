@@ -462,13 +462,6 @@ function renderAnalysis(d, highlight = false) {
   updateTimers(d);
   scheduleSignalRefresh(d);
 
-  // Payout por expiração (multiplicador 0-1 → %)
-  ["1min", "5min", "15min"].forEach((expiry) => {
-    const payout = d.payouts?.[expiry];
-    const el = $(`payout-${expiry}`);
-    if (el) el.textContent = payout === null || payout === undefined ? "" : `Payout ${(Number(payout) * 100).toFixed(1)}%`;
-  });
-
   // Bloco de entrada rápida: aparece quando há sinal CALL/PUT em alguma expiração
   const comSinal = Object.entries(d.signals || {}).some(([, s]) => ["CALL", "PUT"].includes(s && s.signal));
   $("quick-entry-block").classList.toggle("hidden", !comSinal);
@@ -492,7 +485,14 @@ function renderSignal(expiry, signal) {
   const card = document.querySelector(`[data-expiry-card="${expiry}"]`);
   const direction = signal.signal || "AGUARDAR";
   const proximity = signal.proximity?.label || "AGUARDAR";
-  const displayStatus = direction === "CALL" || direction === "PUT" ? direction : proximity;
+  const displayStatus =
+    direction === "CALL" || direction === "PUT"
+      ? direction
+      : proximity === "ATENÇÃO"
+        ? "ATENÇÃO"
+        : proximity === "SINAL MUITO PRÓXIMO"
+          ? "SINAL MUITO PRÓXIMO"
+          : "ANALISANDO MERCADO";
   const statusClass = displayStatus === "ATENÇÃO" ? "attention" : displayStatus === "SINAL MUITO PRÓXIMO" ? "near" : "";
   card.className = `expiry-card ${direction === "CALL" ? "call" : direction === "PUT" ? "put" : "neutral"} ${statusClass}`.trim();
   $( `signal-${expiry}` ).textContent = displayStatus;
@@ -522,7 +522,6 @@ function renderSignal(expiry, signal) {
         <span class="vote-bull">▲ ${resumo.bulls} CALL</span>
         <span class="vote-bear">▼ ${resumo.bears} PUT</span>
         <span class="vote-neu">● ${resumo.neutros} neutros</span>
-        <span class="vote-conf">confiança ${Number(resumo.confianca || 0).toFixed(1)}%</span>
       </div>
       <div class="vote-list">
         ${votos.map((v) =>
@@ -622,7 +621,7 @@ function renderStrategy(strategy) {
 
   const conf = strategy.confidence || 0;
   $("strategy-conf-fill").style.width = `${conf}%`;
-  $("strategy-conf-num").textContent = `${conf.toFixed(0)}% score de confluência · ${strategy.strength || ""}`;
+  $("strategy-conf-num").textContent = strategy.strength || "";
 }
 
 /* ---- Cartões de contexto (15min e 5min) ---- */
@@ -664,7 +663,7 @@ function buildSignalCard(tfKey, label, tf) {
         <span class="signal-arrow">${arrow}</span>
         <span>${sigLabel}</span>
       </div>
-      <div class="signal-conf-big">${tf.confidence.toFixed(0)}%</div>
+
     </div>
     <div class="signal-bar">
       <div class="signal-bar-fill" style="width:${tf.confidence}%"></div>
@@ -700,7 +699,7 @@ function renderIndicators(context, trigger) {
     header.innerHTML = `
       <strong>⏱ ${label}</strong>
       <span class="ind-tf-badge ${cls}">
-        ${tf.signal} · ${tf.confidence.toFixed(0)}%
+        ${tf.signal}
       </span>
     `;
     block.appendChild(header);
