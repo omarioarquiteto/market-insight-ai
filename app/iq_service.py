@@ -119,7 +119,14 @@ def complete_2fa(code: str) -> tuple[bool, str]:
         if client is None:
             return False, "Não há uma autenticação 2FA pendente."
         try:
-            ok, reason = client.connect_2fa(code)
+            connect_2fa = getattr(client, "connect_2fa", None)
+            if not callable(connect_2fa):
+                return False, (
+                    "A biblioteca IQ Option atual não expõe connect_2fa() "
+                    "para este desafio. O login normal já está funcionando; "
+                    "o fluxo de verificação 2FA será tratado separadamente."
+                )
+            ok, reason = connect_2fa(code)
             if not ok:
                 return False, f"Falha no 2FA: {reason!r}"
             client.change_balance(ACCOUNT_TYPE)
