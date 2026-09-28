@@ -80,19 +80,13 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
             _api = None
             _pending_2fa_client = None
             _streams.clear()
-
             IQ_EMAIL, IQ_PASSWORD = email.strip(), password
-            print(
-                f"[iq] login manual: email_configurado={bool(IQ_EMAIL)} "
-                f"senha_configurada={bool(IQ_PASSWORD)}"
-            )
-
+            print(f"[iq] login manual: email_configurado={bool(IQ_EMAIL)} senha_configurada={bool(IQ_PASSWORD)}")
             client = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
             try:
                 client.set_max_reconnect(5)
             except Exception:
                 pass
-
             ok, reason = client.connect()
             if not ok:
                 if reason == "2FA":
@@ -100,7 +94,6 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                     return False, "2FA_REQUIRED"
                 _pending_2fa_client = None
                 return False, f"Falha: {reason!r}"
-
             client.change_balance(ACCOUNT_TYPE)
             _api = client
             return True, f"Conta conectada na conta {ACCOUNT_TYPE}"
@@ -116,28 +109,25 @@ def complete_2fa(code: str) -> tuple[bool, str]:
     code = (code or "").strip()
     if not code:
         return False, "Informe o código 2FA."
-
     with _lock:
         client = _pending_2fa_client
         if client is None:
             return False, "Não há uma autenticação 2FA pendente."
-
         try:
             ok, reason = client.connect_2fa(code)
             if not ok:
                 return False, f"Falha no 2FA: {reason!r}"
-
             client.change_balance(ACCOUNT_TYPE)
             _api = client
             _pending_2fa_client = None
             return True, f"Conta conectada na conta {ACCOUNT_TYPE}"
         except Exception as exc:
             return False, f"Exceção no 2FA: {type(exc).__name__}: {exc}"
+
+
 def credentials_configured() -> dict:
     """Indica presença das variáveis de ambiente, sem expor seus valores."""
     return {"email": bool(IQ_EMAIL), "password": bool(IQ_PASSWORD), "complete": bool(IQ_EMAIL and IQ_PASSWORD)}
-
-
 def is_connected() -> bool:
     if _api is None:
         return False
