@@ -58,6 +58,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TwoFactorRequest(BaseModel):
+    code: str
+
+
 @app.get("/health")
 def health():
     """Health check simples para o Render."""
@@ -84,11 +88,18 @@ def login(request: LoginRequest):
     return {"ok": ok, "message": message, "balance": iq_service.get_balance()}
 
 
+@app.post("/api/login/2fa")
+def login_2fa(request: TwoFactorRequest):
+    ok, message = iq_service.complete_2fa(request.code)
+    return {"ok": ok, "message": message, "balance": iq_service.get_balance()}
+
+
 @app.get("/api/status")
 def status():
     return {
         "connected": iq_service.is_connected(),
         "balance": iq_service.get_balance(),
+        "credentials_configured": iq_service.credentials_configured(),
     }
 
 
