@@ -1,5 +1,5 @@
 """
-Serviço de conexão com a IQ Option via biblioteca comunitária iqoptionapi.
+Serviço de conexão com a IQ Option via fork comunitário atualizado da iqoptionapi.
 Mantém uma instância global conectada e expõe métodos para candles,
 troca de conta (demo/oficial), compra de opções binárias e payout.
 """
@@ -89,7 +89,12 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                 pass
             ok, reason = client.connect()
             if not ok:
-                if reason == "2FA":
+                # A versão nova pode retornar um desafio estruturado de
+                # verificação em vez do marcador literal "2FA".
+                if reason == "2FA" or (
+                    isinstance(reason, str)
+                    and '"code":"verify"' in reason
+                ):
                     _pending_2fa_client = client
                     return False, "2FA_REQUIRED"
                 _pending_2fa_client = None
@@ -104,7 +109,7 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
 
 
 def complete_2fa(code: str) -> tuple[bool, str]:
-    """Conclui o login quando a IQ Option exige código SMS/2FA."""
+    """Conclui o login 2FA somente quando a versão instalada da biblioteca expõe o método compatível."""
     global _api, _pending_2fa_client
     code = (code or "").strip()
     if not code:
