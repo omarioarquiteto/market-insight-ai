@@ -4,5 +4,6 @@ pandas==2.2.3
 numpy==1.26.4
 python-dotenv==1.0.1
 requests==2.32.3
-iqair==1.0.0
+git+https://github.com/Lu-Yi-Hsun/iqoptionapi.git@7dd95a81c079e8af7a3728aa2aa194154f29ba3f
+websocket-client==0.56.0
 openai>=1.40.0
