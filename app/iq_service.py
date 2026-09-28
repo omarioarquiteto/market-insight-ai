@@ -82,12 +82,14 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
             _streams.clear()
             IQ_EMAIL, IQ_PASSWORD = email.strip(), password
             print(f"[iq] login manual: email_configurado={bool(IQ_EMAIL)} senha_configurada={bool(IQ_PASSWORD)}")
+            # Este é deliberadamente o mesmo caminho mínimo que foi
+            # validado no teste local que conseguiu conectar e obter saldo:
+            # IQ_Option(email, password) -> connect() -> check_connect()
+            # -> get_balance(). Não adicionamos reconexão ou troca de conta
+            # antes de confirmar que o WebSocket/login terminou.
             client = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
-            try:
-                client.set_max_reconnect(5)
-            except Exception:
-                pass
             ok, reason = client.connect()
+
             if not ok:
                 # A versão nova pode retornar um desafio estruturado de
                 # verificação em vez do marcador literal "2FA".
@@ -97,11 +99,52 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                 ):
                     _pending_2fa_client = client
                     return False, "2FA_REQUIRED"
+
+                # Coleta somente estado técnico seguro para diferenciar
+                # fechamento do WebSocket de falha de autenticação.
+                details = []
+                try:
+                    connected = bool(client.check_connect())
+                    details.append(f"check_connect={connected}")
+                except Exception as diag_exc:
+                    details.append(f"check_connect_error={type(diag_exc).__name__}")
+
+                api_obj = getattr(client, "api", None)
+                if api_obj is not None:
+                    try:
+                        alive = api_obj.websocket_alive()
+                        details.append(f"websocket_alive={alive}")
+                    except Exception:
+                        pass
+
                 _pending_2fa_client = None
-                return False, f"Falha: {reason!r}"
-            client.change_balance(ACCOUNT_TYPE)
+                suffix = f" ({'; '.join(details)})" if details else ""
+                return False, f"Falha: {reason!r}{suffix}"
+
+            # Só depois do connect() bem-sucedido assumimos a sessão.
+            try:
+                connected = bool(client.check_connect())
+            except Exception:
+                connected = True
+            if not connected:
+                _pending_2fa_client = None
+                return False, "Falha: connect() retornou sucesso, mas check_connect()=False"
+
+            # Mantemos a mesma ordem do teste local: primeiro confirmar a
+            # sessão e o saldo; a troca de conta ocorre depois.
+            try:
+                balance = client.get_balance()
+            except Exception as exc:
+                _pending_2fa_client = None
+                return False, f"Falha após login ao obter saldo: {type(exc).__name__}: {exc}"
+
+            try:
+                client.change_balance(ACCOUNT_TYPE)
+            except Exception as exc:
+                print(f"[iq] aviso: login OK, mas troca de conta {ACCOUNT_TYPE} falhou: {type(exc).__name__}: {exc}")
+
             _api = client
-            return True, f"Conta conectada na conta {ACCOUNT_TYPE}"
+            return True, f"Conta conectada na conta {ACCOUNT_TYPE} (saldo inicial={balance})"
         except Exception as exc:
             _api = None
             _pending_2fa_client = None
