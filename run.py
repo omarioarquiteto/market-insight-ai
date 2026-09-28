@@ -29,7 +29,7 @@ def check_dependencies():
         ("numpy", "numpy"),
         ("requests", "requests"),
         ("dotenv", "python-dotenv"),
-        ("iqair", "iqair"),
+        ("iqoptionapi", "git+https://github.com/victalejo/iqoptionapi.git"),
     ]:
         try:
             __import__(mod)
