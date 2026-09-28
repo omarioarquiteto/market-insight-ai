@@ -42,6 +42,10 @@
       <input id="login-email" type="email" required autocomplete="username" />
       <label for="login-password">Senha</label>
       <input id="login-password" type="password" required autocomplete="current-password" />
+      <div id="login-2fa-wrap" class="hidden">
+        <label for="login-2fa">Código 2FA</label>
+        <input id="login-2fa" type="text" inputmode="numeric" autocomplete="one-time-code" />
+      </div>
       <div id="login-status" class="login-status"></div>
       <button class="btn-primary" type="submit">Conectar</button>
     </form>
