@@ -28,6 +28,7 @@ if ACCOUNT_TYPE not in ("PRACTICE", "REAL"):
     ACCOUNT_TYPE = "PRACTICE"
 
 _api: IQ_Option | None = None
+_pending_2fa_client: IQ_Option | None = None
 _lock = threading.RLock()
 
 # Cache de streams ativos: {(asset, interval): True}
@@ -66,18 +67,10 @@ def connect() -> tuple[bool, str]:
 
 
 def reconnect(email: str, password: str) -> tuple[bool, str]:
-    """Troca a conta usando APENAS as credenciais do login (ignora o .env).
-
-    A partir da tentativa de login, as credenciais digitadas passam a valer
-    para toda a sessão — inclusive nas reconexões automáticas (connect()
-    usa IQ_EMAIL/IQ_PASSWORD). O cliente atual (possivelmente criado com o
-    .env) é descartado imediatamente; se a nova conexão falhar, o app fica
-    desconectado e as próximas tentativas usam as credenciais do login.
-    """
-    global _api, IQ_EMAIL, IQ_PASSWORD
+    """Conecta com as credenciais informadas e trata 2FA quando solicitado."""
+    global _api, _pending_2fa_client, IQ_EMAIL, IQ_PASSWORD
     with _lock:
         try:
-            # Descarta o cliente atual/do .env: a partir de agora o login manda.
             if _api is not None:
                 for asset, interval in list(_streams):
                     try:
@@ -85,24 +78,64 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                     except Exception:
                         pass
             _api = None
+            _pending_2fa_client = None
             _streams.clear()
-            # A sessão passa a usar as credenciais digitadas (mesmo se a
-            # conexão falhar, o fallback nunca volta para o .env).
+
             IQ_EMAIL, IQ_PASSWORD = email.strip(), password
+            print(
+                f"[iq] login manual: email_configurado={bool(IQ_EMAIL)} "
+                f"senha_configurada={bool(IQ_PASSWORD)}"
+            )
+
             client = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
             try:
                 client.set_max_reconnect(5)
             except Exception:
                 pass
+
             ok, reason = client.connect()
             if not ok:
-                _api = None
-                return False, f"Falha: {reason}"
+                if reason == "2FA":
+                    _pending_2fa_client = client
+                    return False, "2FA_REQUIRED"
+                _pending_2fa_client = None
+                return False, f"Falha: {reason!r}"
+
             client.change_balance(ACCOUNT_TYPE)
             _api = client
             return True, f"Conta conectada na conta {ACCOUNT_TYPE}"
         except Exception as exc:
-            return False, f"Exceção: {exc}"
+            _api = None
+            _pending_2fa_client = None
+            return False, f"Exceção: {type(exc).__name__}: {exc}"
+
+
+def complete_2fa(code: str) -> tuple[bool, str]:
+    """Conclui o login quando a IQ Option exige código SMS/2FA."""
+    global _api, _pending_2fa_client
+    code = (code or "").strip()
+    if not code:
+        return False, "Informe o código 2FA."
+
+    with _lock:
+        client = _pending_2fa_client
+        if client is None:
+            return False, "Não há uma autenticação 2FA pendente."
+
+        try:
+            ok, reason = client.connect_2fa(code)
+            if not ok:
+                return False, f"Falha no 2FA: {reason!r}"
+
+            client.change_balance(ACCOUNT_TYPE)
+            _api = client
+            _pending_2fa_client = None
+            return True, f"Conta conectada na conta {ACCOUNT_TYPE}"
+        except Exception as exc:
+            return False, f"Exceção no 2FA: {type(exc).__name__}: {exc}"
+def credentials_configured() -> dict:
+    """Indica presença das variáveis de ambiente, sem expor seus valores."""
+    return {"email": bool(IQ_EMAIL), "password": bool(IQ_PASSWORD), "complete": bool(IQ_EMAIL and IQ_PASSWORD)}
 
 
 def is_connected() -> bool:
