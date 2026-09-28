@@ -70,7 +70,14 @@ document.querySelectorAll(".view-tab").forEach((tab) => {
 $("confirm-strategy").addEventListener("click", confirmStrategy);
 $("login-button").addEventListener("click", () => $("login-modal").classList.remove("hidden"));
 $("login-close").addEventListener("click", () => $("login-modal").classList.add("hidden"));
-$("login-form").addEventListener("submit", loginAccount);
+$("login-form").addEventListener("submit", (event) => {
+  if (!$("login-2fa-wrap").classList.contains("hidden")) {
+    event.preventDefault();
+    submit2FA();
+    return;
+  }
+  loginAccount(event);
+});
 $("asset-search").addEventListener("input", (event) => renderAssets(event.target.value));
 $("radar-strategy-select").addEventListener("change", (event) => {
   selectedStrategy = event.target.value;
@@ -258,8 +265,45 @@ async function loginAccount(event) {
       body: JSON.stringify({ email: $("login-email").value, password: $("login-password").value }),
     });
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.message || "Falha no login");
+    if (!response.ok || !data.ok) {
+      if (data.message === "2FA_REQUIRED") {
+        $("login-2fa-wrap").classList.remove("hidden");
+        $("login-2fa").focus();
+        status.textContent = "A IQ Option enviou um código 2FA. Informe o código e clique em Conectar novamente.";
+        return;
+      }
+      throw new Error(data.message || "Falha no login");
+    }
     $("login-password").value = "";
+    $("login-modal").classList.add("hidden");
+    await checkStatus();
+    await loadBalance();
+    await loadAnalysis();
+    status.textContent = "";
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+async function submit2FA() {
+  const status = $("login-status");
+  const code = $("login-2fa").value.trim();
+  if (!code) {
+    status.textContent = "Informe o código 2FA.";
+    return;
+  }
+  status.textContent = "Validando código 2FA…";
+  try {
+    const response = await fetch("/api/login/2fa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.message || "Falha no 2FA");
+    $("login-password").value = "";
+    $("login-2fa").value = "";
+    $("login-2fa-wrap").classList.add("hidden");
     $("login-modal").classList.add("hidden");
     await checkStatus();
     await loadBalance();
