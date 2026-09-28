@@ -121,21 +121,15 @@ document.querySelectorAll(".tf-btn").forEach((btn) => {
    Boot
 ============================================================ */
 async function boot() {
-  await ensureConnected();
+  // A página pode carregar livremente, mas NUNCA inicia uma conexão com a IQ Option.
+  // A conexão e os dados de mercado só começam depois do login manual.
   await loadAssets();
   await loadStrategies();
   await checkStatus();
   initChart();
-  await loadChart();
-  await loadBalance();
+  loadTradeConfig();
 
-  if (refreshTimer) clearInterval(refreshTimer);
-  refreshTimer = setInterval(loadChart, 3000);
-  setInterval(loadBalance, 20000);
-  setInterval(ensureConnected, 60000);
-  loadTradeConfig(); // conta configurada no label + estado
-
-  // Relogio sempre ativo e independente da analise, para nunca congelar.
+  // Relógio local independente da conexão.
   if (signalTimer) clearInterval(signalTimer);
   signalTimer = setInterval(updateTimers, 250);
   document.addEventListener("visibilitychange", updateTimers);
@@ -234,24 +228,9 @@ function signalBadge(signal, label, proximity) {
 }
 
 async function ensureConnected() {
-  try {
-    const r = await fetch("/api/connect");
-    const d = await r.json();
-    const el = $("conn-status");
-    if (d.ok) {
-      el.classList.remove("err");
-      el.classList.add("ok");
-      $("conn-text").textContent = "Conectado à IQ Option";
-    } else {
-      el.classList.remove("ok");
-      el.classList.add("err");
-      $("conn-text").textContent = d.message || "Falha na conexão";
-    }
-  } catch {
-    $("conn-status").classList.remove("ok");
-    $("conn-status").classList.add("err");
-    $("conn-text").textContent = "Erro de conexão";
-  }
+  // Mantido apenas como atualização de interface. Não chama /api/connect
+  // e portanto não pode iniciar uma conexão automaticamente.
+  await checkStatus();
 }
 
 async function loginAccount(event) {
@@ -278,7 +257,11 @@ async function loginAccount(event) {
     $("login-modal").classList.add("hidden");
     await checkStatus();
     await loadBalance();
+    await loadChart();
     await loadAnalysis();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadChart, 3000);
+    loadTradeConfig();
     status.textContent = "";
   } catch (error) {
     status.textContent = error.message;
@@ -307,7 +290,11 @@ async function submit2FA() {
     $("login-modal").classList.add("hidden");
     await checkStatus();
     await loadBalance();
+    await loadChart();
     await loadAnalysis();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadChart, 3000);
+    loadTradeConfig();
     status.textContent = "";
   } catch (error) {
     status.textContent = error.message;
@@ -322,6 +309,12 @@ async function checkStatus() {
     if (d.connected) {
       el.classList.remove("err");
       el.classList.add("ok");
+      $("conn-text").textContent = "Conectado à IQ Option";
+    } else {
+      el.classList.remove("ok");
+      el.classList.add("err");
+      $("conn-text").textContent = "Desconectado — faça login";
+      $("balance-value").textContent = "—";
     }
   } catch {}
 }
