@@ -88,7 +88,12 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
             # -> get_balance(). Não adicionamos reconexão ou troca de conta
             # antes de confirmar que o WebSocket/login terminou.
             client = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+
+            # Diagnóstico do fluxo real da biblioteca. Não registramos
+            # credenciais, SSID, cookies ou tokens.
+            print("[iq] etapa 1: cliente IQ_Option criado")
             ok, reason = client.connect()
+            print(f"[iq] etapa 2: client.connect() terminou ok={ok} reason_type={type(reason).__name__}")
 
             if not ok:
                 # A versão nova pode retornar um desafio estruturado de
@@ -100,8 +105,6 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                     _pending_2fa_client = client
                     return False, "2FA_REQUIRED"
 
-                # Coleta somente estado técnico seguro para diferenciar
-                # fechamento do WebSocket de falha de autenticação.
                 details = []
                 try:
                     connected = bool(client.check_connect())
@@ -114,30 +117,48 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
                     try:
                         alive = api_obj.websocket_alive()
                         details.append(f"websocket_alive={alive}")
+                    except Exception as diag_exc:
+                        details.append(f"websocket_alive_error={type(diag_exc).__name__}")
+
+                    # O objeto da API mantém o estado interno usado pelo
+                    # iqoptionapi para reportar erro do WebSocket.
+                    try:
+                        gv = getattr(api_obj, "global_value", None)
+                        if gv is not None:
+                            err = getattr(gv, "websocket_error_reason", None)
+                            if err:
+                                details.append(f"library_ws_error={err!r}")
                     except Exception:
                         pass
 
+                    try:
+                        ws = getattr(api_obj, "websocket", None)
+                        if ws is not None:
+                            details.append(f"websocket_object={type(ws).__name__}")
+                    except Exception:
+                        pass
+
+                print(f"[iq] connect diagnostic: reason={reason!r}; {'; '.join(details)}")
                 _pending_2fa_client = None
                 suffix = f" ({'; '.join(details)})" if details else ""
                 return False, f"Falha: {reason!r}{suffix}"
 
-            # Só depois do connect() bem-sucedido assumimos a sessão.
             try:
                 connected = bool(client.check_connect())
             except Exception:
                 connected = True
+            print(f"[iq] etapa 3: check_connect={connected}")
             if not connected:
                 _pending_2fa_client = None
                 return False, "Falha: connect() retornou sucesso, mas check_connect()=False"
 
-            # Mantemos a mesma ordem do teste local: primeiro confirmar a
-            # sessão e o saldo; a troca de conta ocorre depois.
             try:
                 balance = client.get_balance()
             except Exception as exc:
                 _pending_2fa_client = None
                 return False, f"Falha após login ao obter saldo: {type(exc).__name__}: {exc}"
 
+            print("[iq] etapa 4: saldo obtido")
             try:
                 client.change_balance(ACCOUNT_TYPE)
             except Exception as exc:
