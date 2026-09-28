@@ -22,22 +22,14 @@ import ai_advisor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicializa o módulo de entradas (config + worker de apuração) antes do
-    # connect, para que a conta configurada seja aplicada na conexão.
-    # Nenhuma falha aqui pode derrubar a aplicação (importante na Vercel).
+    # Inicializa somente módulos locais. A IQ Option NÃO é acessada aqui.
+    # A conexão só pode ser iniciada pelo login manual da interface.
     try:
         trade_manager.iniciar()
     except Exception as exc:
         print(f"[startup] aviso: falha ao iniciar o módulo de entradas: {exc}")
-    # Tenta conectar à IQ Option na inicialização
-    print("[startup] Conectando à IQ Option...")
-    try:
-        ok, msg = iq_service.connect()
-        print(f"[startup] {msg}")
-    except Exception as exc:
-        print(f"[startup] aviso: falha na conexão IQ Option: {exc}")
+    print("[startup] IQ Option aguardando login manual.")
     yield
-    # Shutdown (opcional): limpar streams
     print("[shutdown] Encerrando...")
 
 
@@ -75,9 +67,20 @@ def root():
 
 @app.get("/api/connect")
 def connect():
-    """Força (re)conexão com a IQ Option."""
-    ok, msg = iq_service.connect()
-    return {"ok": ok, "message": msg, "balance": iq_service.get_balance()}
+    """Retorna o estado sem iniciar uma conexão automática."""
+    if not iq_service.is_connected():
+        return {
+            "ok": False,
+            "connected": False,
+            "message": "Desconectado. Faça login manualmente.",
+            "balance": None,
+        }
+    return {
+        "ok": True,
+        "connected": True,
+        "message": "Já conectado à IQ Option.",
+        "balance": iq_service.get_balance(),
+    }
 
 
 @app.post("/api/login")
@@ -187,11 +190,12 @@ def opportunities(strategy: str = "trend_pullback"):
 
 
 def _ensure_connected():
-    """Garante que estamos conectados antes de qualquer chamada."""
+    """Exige login manual; nunca inicia conexão automaticamente."""
     if not iq_service.is_connected():
-        ok, msg = iq_service.connect()
-        if not ok:
-            raise HTTPException(503, f"Não foi possível conectar à IQ Option: {msg}")
+        raise HTTPException(
+            401,
+            "Desconectado da IQ Option. Faça login manualmente antes de analisar."
+        )
 
 
 @app.get("/api/candles/{asset}")
