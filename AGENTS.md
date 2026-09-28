@@ -23,7 +23,7 @@ Observações: não há linter/type-check configurado. `tests/test_iq.py` é scr
 ## Architecture
 
 - `app/main.py` — API FastAPI (`/api/*`): connect/login/status, oportunidades, candles, análise, backtest, radar, entradas/relatório, indicadores/parâmetros de estratégia, IA. Orquestra os demais módulos do pacote `app/`.
-- `app/iq_service.py` — wrapper global da IQ Option (`iqair`): conexão única (`_api`), troca de conta, candles, compra binária, payout, `get_market_status` (aberto/fechado via `get_asset_metadata`, cache 60s). Estado em singleton com `RLock`.
+- `app/iq_service.py` — wrapper global da IQ Option (`iqoptionapi`): conexão única (`_api`), troca de conta, candles, compra binária, payout, `get_market_status` (aberto/fechado via `get_asset_metadata`, cache 60s). Estado em singleton com `RLock`.
 - `app/analysis.py` — motor de análise: `TIMEFRAMES` (1/5/15min), `STRATEGIES` (trend_pullback, breakout, mean_reversion, support_resistance, momentum), indicadores (EMA, ADX, RSI, MACD, Bollinger…), cache `_SIGNAL_CACHE`, acerto histórico por janela rolante, `walkforward_asset` (backtest).
 - `app/news_service.py` — calendário econômico Biquote (cache 60s + lock), `get_news_risk` bloqueia sinais perto de eventos de alto impacto.
 - `app/trade_manager.py` — gestão de entradas: config (`set_config`/`get_estado_completo`), histórico/CRUD em SQLite (`market.db` na raiz via `_resolver_db_path`; fallback `/tmp`/memória em serverless), worker de apuração em thread, relatórios por período.
