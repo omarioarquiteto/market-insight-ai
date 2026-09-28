@@ -1,5 +1,5 @@
 """
-Serviço de conexão com a IQ Option via biblioteca iqair.
+Serviço de conexão com a IQ Option via biblioteca comunitária iqoptionapi.
 Mantém uma instância global conectada e expõe métodos para candles,
 troca de conta (demo/oficial), compra de opções binárias e payout.
 """
@@ -9,7 +9,8 @@ import os
 import time
 import threading
 
-from iqair.client import IQOptionClient
+from iqoptionapi.stable_api import IQ_Option
+import iqoptionapi.constants as OP_code
 
 try:
     from dotenv import load_dotenv
@@ -26,7 +27,7 @@ ACCOUNT_TYPE = os.getenv("IQ_ACCOUNT_TYPE", "PRACTICE").upper()
 if ACCOUNT_TYPE not in ("PRACTICE", "REAL"):
     ACCOUNT_TYPE = "PRACTICE"
 
-_api: IQOptionClient | None = None
+_api: IQ_Option | None = None
 _lock = threading.RLock()
 
 # Cache de streams ativos: {(asset, interval): True}
@@ -45,7 +46,11 @@ def connect() -> tuple[bool, str]:
         if not IQ_EMAIL or not IQ_PASSWORD:
             return False, "IQ_EMAIL/IQ_PASSWORD ausentes no .env"
         try:
-            _api = IQOptionClient(IQ_EMAIL, IQ_PASSWORD)
+            _api = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+            try:
+                _api.set_max_reconnect(5)
+            except Exception:
+                pass
             ok, reason = _api.connect()
             if not ok:
                 _api = None
@@ -84,9 +89,14 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
             # A sessão passa a usar as credenciais digitadas (mesmo se a
             # conexão falhar, o fallback nunca volta para o .env).
             IQ_EMAIL, IQ_PASSWORD = email.strip(), password
-            client = IQOptionClient(IQ_EMAIL, IQ_PASSWORD)
+            client = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+            try:
+                client.set_max_reconnect(5)
+            except Exception:
+                pass
             ok, reason = client.connect()
             if not ok:
+                _api = None
                 return False, f"Falha: {reason}"
             client.change_balance(ACCOUNT_TYPE)
             _api = client
@@ -96,7 +106,12 @@ def reconnect(email: str, password: str) -> tuple[bool, str]:
 
 
 def is_connected() -> bool:
-    return _api is not None
+    if _api is None:
+        return False
+    try:
+        return bool(_api.check_connect())
+    except Exception:
+        return False
 
 
 def get_api():
@@ -197,44 +212,45 @@ def list_assets() -> list[str]:
     return [*DEFAULT_ASSETS, *DEFAULT_ASSETS_OTC]
 
 
-# Cache do status de mercado (get_asset_metadata é pesado: várias chamadas
-# à IQ Option; por isso a renovação é espaçada e falhas viram status desconhecido).
-_metadata_cache: dict = {"ts": 0.0, "open_map": {}}
-METADATA_CACHE_SECONDS = 60
-
+# Cache do status de mercado. O iqoptionapi expõe get_all_open_time()
+# em vez de get_asset_metadata(); mantemos cache para não repetir chamadas pesadas.
+_open_time_cache: dict = {"ts": 0.0, "data": None}
+OPEN_TIME_CACHE_SECONDS = 60
 
 def get_market_status(asset: str) -> str | None:
-    """Situação do par na IQ Option: 'aberto', 'fechado' ou None (desconhecido).
-
-    Usa o diretório consolidado de ativos (get_asset_metadata), que cobre
-    turbo/binary/forex/cfd/crypto e tickers OTC (ex.: EURUSD-OTC), com cache
-    de 60s. Retorna None quando desconectado, quando a IQ Option não responde
-    ou quando o ticker não consta no diretório.
-    """
-    global _metadata_cache
+    """Situação do par na IQ Option: 'aberto', 'fechado' ou None."""
     if _api is None:
         return None
     try:
         now = time.time()
-        if now - _metadata_cache["ts"] > METADATA_CACHE_SECONDS:
-            metadata = _api.get_asset_metadata()
-            open_map = {}
-            for category, acts in metadata.items():
-                if not isinstance(acts, dict):
-                    continue
-                for ticker, info in acts.items():
-                    if isinstance(info, dict) and "is_open" in info:
-                        open_map[str(ticker).upper()] = bool(info.get("is_open"))
-            _metadata_cache = {"ts": now, "open_map": open_map}
-        is_open = _metadata_cache["open_map"].get(asset.upper())
-        if is_open is None:
-            return None
-        return "aberto" if is_open else "fechado"
+        if now - _open_time_cache["ts"] > OPEN_TIME_CACHE_SECONDS or _open_time_cache["data"] is None:
+            _open_time_cache["data"] = _api.get_all_open_time()
+            _open_time_cache["ts"] = now
+
+        data = _open_time_cache["data"] or {}
+        asset_key = asset.upper()
+        for market in ("turbo", "binary"):
+            section = data.get(market, {})
+            info = section.get(asset_key) if hasattr(section, "get") else None
+            if isinstance(info, dict) and "open" in info:
+                return "aberto" if bool(info["open"]) else "fechado"
+        return None
     except Exception as exc:
         print(f"[iq] erro get_market_status({asset}): {exc}")
         return None
 
-
+def _ensure_active(asset: str) -> bool:
+    """Garante que o ticker exista no catálogo ACTIVES do iqoptionapi."""
+    if _api is None:
+        return False
+    key = asset.upper()
+    if key in OP_code.ACTIVES:
+        return True
+    try:
+        _api.update_ACTIVES_OPCODE()
+    except Exception as exc:
+        print(f"[iq] não foi possível atualizar ACTIVES para {asset}: {exc}")
+    return key in OP_code.ACTIVES
 def _normalize(c: dict) -> dict:
     """Padroniza o dicionário de candle da IQ Option."""
     return {
@@ -252,6 +268,8 @@ def get_candles(asset: str, interval: int = 300, count: int = 200) -> list[dict]
     if _api is None:
         return []
     try:
+        if not _ensure_active(asset):
+            raise ValueError(f"Ativo não encontrado no catálogo da IQ Option: {asset}")
         raw = _api.get_candles(asset, interval, count, time.time())
         if isinstance(raw, dict):
             raw = raw.get("candles") or raw.get("data") or []
@@ -264,6 +282,8 @@ def get_candles(asset: str, interval: int = 300, count: int = 200) -> list[dict]
 def start_stream(asset: str, interval: int = 300, count: int = 200) -> bool:
     """Inicia streaming em tempo real de um ativo."""
     if _api is None:
+        return False
+    if not _ensure_active(asset):
         return False
     key = (asset, interval)
     with _lock:
